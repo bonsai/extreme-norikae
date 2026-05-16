@@ -2,6 +2,7 @@ services:
   - type: web
     name: extreme-norikae-api
     runtime: go
+    startCommand: ./app
     envVars:
       - key: DATABASE_URL
         sync: false
