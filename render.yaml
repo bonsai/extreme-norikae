@@ -2,9 +2,6 @@ services:
   - type: web
     name: extreme-norikae-api
     runtime: go
-    rootDir: backend
-    buildCommand: go build -o server .
-    startCommand: ./server
     envVars:
       - key: DATABASE_URL
         sync: false
