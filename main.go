@@ -2,13 +2,19 @@ package main
 
 import (
 	"database/sql"
+	"embed"
 	"encoding/json"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	_ "github.com/lib/pq"
 )
+
+//go:embed dist/*
+var dist embed.FS
 
 type Station struct {
 	ID   string  `json:"id"`
@@ -58,11 +64,26 @@ func main() {
 	}
 	log.Println("connected to database")
 
+	distFS, _ := fs.Sub(dist, "dist")
+	fileServer := http.FileServer(http.FS(distFS))
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/stations", cors(handleStations))
-	mux.HandleFunc("/api/runs", cors(handleRuns))
-	mux.HandleFunc("/api/ranking", cors(handleRanking))
-	mux.HandleFunc("/api/segments", cors(handleSegments))
+	mux.Handle("/api/", cors(apiHandler()))
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			http.NotFound(w, r)
+			return
+		}
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		f, err := distFS.Open(path)
+		if err != nil {
+			r.URL.Path = "/"
+		} else {
+			f.Close()
+			r.URL.Path = path
+		}
+		fileServer.ServeHTTP(w, r)
+	})
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -72,8 +93,21 @@ func main() {
 	log.Fatal(http.ListenAndServe(":"+port, mux))
 }
 
-func cors(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func apiHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/stations", handleStations)
+	mux.HandleFunc("/api/runs", handleRuns)
+	mux.HandleFunc("/api/ranking", handleRanking)
+	mux.HandleFunc("/api/segments", handleSegments)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			mux.ServeHTTP(w, r)
+		}
+	})
+}
+
+func cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
@@ -81,8 +115,8 @@ func cors(next http.HandlerFunc) http.HandlerFunc {
 			w.WriteHeader(204)
 			return
 		}
-		next(w, r)
-	}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func json200(w http.ResponseWriter, v any) {

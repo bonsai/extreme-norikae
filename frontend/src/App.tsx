@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { getStations, postRun, getRanking } from './api'
-import type { Station, RankEntry } from './types'
 
+const API = '/api'
+
+type Station = { id: string; name: string; lat: number; lng: number }
+type RankEntry = { rank: number; user_id: string; sec: number; ran_at: string }
 type Screen = 'start' | 'running' | 'result'
 
 function fmtTime(sec: number) {
@@ -29,7 +31,7 @@ export default function App() {
   const startRef = useRef(0)
 
   useEffect(() => {
-    getStations().then(setStations)
+    fetch(`${API}/stations`).then(r => r.json()).then(setStations)
   }, [])
 
   const fromStation = stations.find(s => s.id === fromId)
@@ -49,7 +51,11 @@ export default function App() {
     if (timerRef.current) clearInterval(timerRef.current)
     const sec = Math.floor((Date.now() - startRef.current) / 1000)
     setFinalSec(sec)
-    const res = await postRun({ from_id: fromId, to_id: toId, sec, user_id: getUserId() })
+    const res = await fetch(`${API}/runs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from_id: fromId, to_id: toId, sec, user_id: getUserId() }),
+    }).then(r => r.json())
     setRanking(res.ranking ?? [])
     setIsRecord(res.is_record ?? false)
     setScreen('result')
@@ -83,9 +89,15 @@ export default function App() {
         </select>
       </div>
 
-      {fromId && toId && <RankingPreview fromId={fromId} toId={toId} />}
+      {fromId && toId && (
+        <RankingPreview fromId={fromId} toId={toId} />
+      )}
 
-      <button className="go-btn" disabled={!fromId || !toId || fromId === toId} onClick={startRun}>
+      <button
+        className="go-btn"
+        disabled={!fromId || !toId || fromId === toId}
+        onClick={startRun}
+      >
         GO
       </button>
     </div>
@@ -141,7 +153,9 @@ export default function App() {
 function RankingPreview({ fromId, toId }: { fromId: string; toId: string }) {
   const [top, setTop] = useState<RankEntry | null>(null)
   useEffect(() => {
-    getRanking(fromId, toId).then((data: RankEntry[]) => setTop(data[0] ?? null))
+    fetch(`${API}/ranking?from=${fromId}&to=${toId}`)
+      .then(r => r.json())
+      .then((data: RankEntry[]) => setTop(data[0] ?? null))
   }, [fromId, toId])
   if (!top) return <p className="no-record">この区間は未踏</p>
   return <p className="current-record">🏆 区間レコード {fmtTime(top.sec)}</p>
